@@ -53,8 +53,12 @@ can call it alongside the built-in Snacks pickers.
 
 ## Usage
 
+```vim
+:Everywhere
+```
+
 ```lua
--- Direct call (works without calling setup first)
+-- Lua call (works without calling setup first)
 require("everywhere").pick()
 
 -- Via the registered Snacks source (requires setup to have been called)
@@ -69,6 +73,10 @@ Per-call overrides are supported -- any config key can be passed at call time:
 ```lua
 require("everywhere").pick({ regex = false, max_results = 500 })
 ```
+
+## Health check
+
+Run `:checkhealth everywhere` to verify the configured backend tool is installed and reachable.
 
 ## Config reference
 
