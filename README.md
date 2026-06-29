@@ -1,15 +1,22 @@
 # telescope-everything.nvim
 
-Search files with [es.exe](https://www.voidtools.com/support/everything/command_line_interface/)
-(Everything Command Line Interface) for Windows users. Supports both
-[Snacks picker](https://github.com/folke/snacks.nvim) and
-[Telescope](https://github.com/nvim-telescope/telescope.nvim).
+Fast file search in Neovim powered by a pre-indexed database.
+Supports [Everything](https://www.voidtools.com/) (Windows) and
+[plocate](https://plocate.sesse.net/) (Linux) via
+[Snacks picker](https://github.com/folke/snacks.nvim),
+with a legacy [Telescope](https://github.com/nvim-telescope/telescope.nvim)
+backend kept for backwards compatibility.
 
 ## Requirement
 
-Install [Everything](https://www.voidtools.com/), and put
-[Everything Command Line Interface](https://www.voidtools.com/support/everything/command_line_interface/)
-in PATH (or set `es_path` to the full path of `es.exe`).
+One of:
+
+- **Windows** — install [Everything](https://www.voidtools.com/) and add
+  [es.exe](https://www.voidtools.com/support/everything/command_line_interface/)
+  to `PATH` (or set `backends.everything.cmd`).
+- **Linux** — install `plocate` via your package manager
+  (`sudo apt install plocate` / `sudo pacman -S plocate` / …).
+  Run `sudo updatedb` (or `sudo plocate --updatedb`) to build the initial index.
 
 ---
 
@@ -17,9 +24,8 @@ in PATH (or set `es_path` to the full path of `es.exe`).
 
 ### Installation
 
-[lazy.nvim](https://github.com/folke/lazy.nvim)
-
 ```lua
+-- lazy.nvim
 {
   "deltoss/telescope-everything.nvim",
   dependencies = { "folke/snacks.nvim" },
@@ -30,32 +36,45 @@ in PATH (or set `es_path` to the full path of `es.exe`).
 
 ```lua
 require("snacks-everything").setup({
-  -- optional — shown with defaults
-  es_path = "es",
+  -- "auto" tries each backend in order (everything → plocate)
+  backend = "auto", -- "auto" | "everything" | "plocate"
+
+  -- Shared flags (translated for each backend automatically)
   case_sensitive = false,
-  whole_word = false,
-  match_path = false,
-  sort = false,
-  regex = true,
-  offset = 0,
-  max_results = 100,
+  whole_word    = false,
+  match_path    = false, -- false = basename only, true = full path
+  regex         = true,
+  max_results   = 100,
+
+  -- Backend-specific options
+  backends = {
+    everything = {
+      cmd    = "es",  -- path to es.exe if not in PATH
+      sort   = false, -- sort results alphabetically
+      offset = 0,     -- skip the first N results
+    },
+    plocate = {
+      cmd      = "plocate",       -- path to plocate if not in PATH
+      database = nil,             -- custom database path (-d); nil = system default
+    },
+  },
 })
 ```
 
 `setup()` also registers `Snacks.picker.everything` as a named source so you
-can call it alongside the built-in Snacks pickers.
+can call it alongside built-in Snacks pickers.
 
 ### Usage
 
 ```lua
--- Direct call (works without setup)
+-- Direct call (works without calling setup first)
 require("snacks-everything").pick()
 
 -- Via the registered Snacks source (requires setup to have been called)
 Snacks.picker.everything()
 
--- Keymap example
-vim.keymap.set("n", "<leader>se", require("snacks-everything").pick, { desc = "Everything search" })
+-- Keymap
+vim.keymap.set("n", "<leader>se", require("snacks-everything").pick, { desc = "File search" })
 ```
 
 ### Per-call overrides
@@ -63,7 +82,12 @@ vim.keymap.set("n", "<leader>se", require("snacks-everything").pick, { desc = "E
 Any config key can be overridden at call time:
 
 ```lua
-require("snacks-everything").pick({ regex = false, max_results = 500 })
+-- Force plocate, ignore case, search full paths
+require("snacks-everything").pick({
+  backend        = "plocate",
+  case_sensitive = true,
+  match_path     = true,
+})
 ```
 
 ---
@@ -72,19 +96,12 @@ require("snacks-everything").pick({ regex = false, max_results = 500 })
 
 ### Installation
 
-[lazy.nvim](https://github.com/folke/lazy.nvim)
-
 ```lua
+-- lazy.nvim
 {
   "deltoss/telescope-everything.nvim",
   dependencies = { "nvim-telescope/telescope.nvim" },
 }
-```
-
-[vim-plug](https://github.com/junegunn/vim-plug)
-
-```vim
-Plug 'deltoss/telescope-everything.nvim'
 ```
 
 ### Setup
@@ -105,14 +122,14 @@ require("telescope").load_extension("everything")
 require("telescope").setup({
   extensions = {
     everything = {
-      es_path = "es",
+      es_path       = "es",
       case_sensitive = false,
-      whole_word = false,
-      match_path = false,
-      sort = false,
-      regex = true,
-      offset = 0,
-      max_results = 100,
+      whole_word    = false,
+      match_path    = false,
+      sort          = false,
+      regex         = true,
+      offset        = 0,
+      max_results   = 100,
     },
   },
 })
@@ -120,18 +137,43 @@ require("telescope").setup({
 
 ---
 
-## Config reference
+## Config reference (Snacks backend)
+
+### Shared options
 
 | Option | Default | Description |
 |---|---|---|
-| `es_path` | `"es"` | Path to `es.exe`; only needed if not in `PATH` |
+| `backend` | `"auto"` | Which backend to use. `"auto"` picks the first available. |
 | `case_sensitive` | `false` | Case-sensitive matching |
 | `whole_word` | `false` | Whole-word matching |
-| `match_path` | `false` | Match against the full path, not just the filename |
-| `sort` | `false` | Sort results alphabetically |
-| `regex` | `true` | Treat the query as a regex |
-| `offset` | `0` | Skip the first N results |
+| `match_path` | `false` | `false` = match filename/basename only; `true` = match full path |
+| `regex` | `true` | Treat the query as a regular expression |
 | `max_results` | `100` | Maximum number of results returned |
 
-See the [Everything CLI docs](https://www.voidtools.com/support/everything/command_line_interface/)
-for more detail on each flag.
+### `backends.everything`
+
+| Option | Default | Description |
+|---|---|---|
+| `cmd` | `"es"` | Path to `es.exe`; only needed if not in `PATH` |
+| `sort` | `false` | Sort results alphabetically |
+| `offset` | `0` | Skip the first N results |
+
+### `backends.plocate`
+
+| Option | Default | Description |
+|---|---|---|
+| `cmd` | `"plocate"` | Path to `plocate`; only needed if not in `PATH` |
+| `database` | `nil` | Custom database path (`-d`). `nil` uses the system default. |
+
+### Multi-term queries
+
+Both backends treat space-separated terms as **AND** (all must match):
+
+- Everything does this natively.
+- plocate is given the `-A` flag automatically when more than one term is present.
+
+Quoted phrases are kept together:
+
+```
+"my project" .lua   →  finds paths matching both "my project" AND ".lua"
+```

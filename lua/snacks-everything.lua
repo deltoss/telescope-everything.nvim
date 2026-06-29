@@ -1,47 +1,133 @@
 local M = {}
 
+-- ─── config ────────────────────────────────────────────────────────────────
+
 ---@class snacks_everything.Config
 local defaults = {
-  es_path = "es",
+  -- "auto" tries each backend in order until one is executable
+  backend = "auto", -- "auto" | "everything" | "plocate"
+
+  -- Shared flags (translated per-backend)
   case_sensitive = false,
   whole_word = false,
+  -- false = match filename/basename only; true = match full path
   match_path = false,
-  sort = false,
   regex = true,
-  offset = 0,
   max_results = 100,
+
+  -- Per-backend options
+  backends = {
+    everything = {
+      cmd = "es",
+      sort = false, -- sort results alphabetically
+      offset = 0,   -- skip first N results
+    },
+    plocate = {
+      cmd = "plocate",
+      database = nil, -- custom database path (-d); nil = system default
+    },
+  },
 }
 
 M.config = vim.deepcopy(defaults)
 
----@param opts? snacks_everything.Config
-function M.setup(opts)
-  M.config = vim.tbl_deep_extend("force", defaults, opts or {})
+-- ─── backend definitions ───────────────────────────────────────────────────
 
-  -- Register as a named Snacks source so users can call Snacks.picker.everything()
-  local ok, snacks_picker = pcall(require, "snacks.picker")
-  if ok then
-    snacks_picker.sources = snacks_picker.sources or {}
-    snacks_picker.sources.everything = {
-      title = "Everything",
-      live = true,
-      supports_live = true,
-      need_search = true,
-      finder = M.source,
-      format = "file",
-      preview = "file",
-      -- Propagate the merged config as source defaults
-      es_path = M.config.es_path,
-      case_sensitive = M.config.case_sensitive,
-      whole_word = M.config.whole_word,
-      match_path = M.config.match_path,
-      sort = M.config.sort,
-      regex = M.config.regex,
-      offset = M.config.offset,
-      max_results = M.config.max_results,
-    }
-  end
-end
+local BACKENDS_ORDER = { "everything", "plocate" }
+
+local backends = {}
+
+backends.everything = {
+  available = function(opts)
+    return vim.fn.executable(opts.backends.everything.cmd) == 1
+  end,
+
+  cmd = function(opts)
+    return opts.backends.everything.cmd
+  end,
+
+  ---@param opts snacks_everything.Config
+  ---@param query_parts string[]
+  build_args = function(opts, query_parts)
+    local b = opts.backends.everything
+    local args = {}
+    if opts.case_sensitive then
+      args[#args + 1] = "-case"
+    end
+    if opts.whole_word then
+      args[#args + 1] = "-whole-word"
+    end
+    if opts.match_path then
+      args[#args + 1] = "-match-path"
+    end
+    if b.sort then
+      args[#args + 1] = "-s"
+    end
+    -- 0 is truthy in Lua, so guard explicitly to avoid -offset 0 at default
+    if b.offset and b.offset > 0 then
+      args[#args + 1] = "-offset"
+      args[#args + 1] = tostring(b.offset)
+    end
+    if opts.max_results then
+      args[#args + 1] = "-max-results"
+      args[#args + 1] = tostring(opts.max_results)
+    end
+    -- -regex must come after all other flags
+    if opts.regex then
+      args[#args + 1] = "-regex"
+    end
+    vim.list_extend(args, query_parts)
+    return args
+  end,
+}
+
+backends.plocate = {
+  available = function(opts)
+    return vim.fn.executable(opts.backends.plocate.cmd) == 1
+  end,
+
+  cmd = function(opts)
+    return opts.backends.plocate.cmd
+  end,
+
+  ---@param opts snacks_everything.Config
+  ---@param query_parts string[]
+  build_args = function(opts, query_parts)
+    local b = opts.backends.plocate
+    local args = {}
+    -- plocate is case-sensitive by default; add -i for case-insensitive
+    if not opts.case_sensitive then
+      args[#args + 1] = "-i"
+    end
+    if opts.whole_word then
+      args[#args + 1] = "-w"
+    end
+    -- plocate ANDs multiple patterns only with -A; mirrors Everything behaviour
+    if #query_parts > 1 then
+      args[#args + 1] = "-A"
+    end
+    if opts.max_results then
+      args[#args + 1] = "-l"
+      args[#args + 1] = tostring(opts.max_results)
+    end
+    if b.database then
+      args[#args + 1] = "-d"
+      args[#args + 1] = b.database
+    end
+    -- plocate matches full path by default; -b restricts to basename
+    if not opts.match_path then
+      args[#args + 1] = "-b"
+    end
+    -- --regex = ERE; omit for plain substring/glob matching
+    if opts.regex then
+      args[#args + 1] = "--regex"
+    end
+    vim.list_extend(args, query_parts)
+    return args
+  end,
+}
+
+-- ─── helpers ───────────────────────────────────────────────────────────────
 
 local function split_search(search)
   local args = {}
@@ -56,36 +142,20 @@ local function split_search(search)
   return args
 end
 
-local function build_es_args(opts, query_parts)
-  local args = {}
-  if opts.case_sensitive then
-    args[#args + 1] = "-case"
+local function resolve_backend(opts)
+  local name = opts.backend or "auto"
+  if name ~= "auto" then
+    return backends[name], name
   end
-  if opts.whole_word then
-    args[#args + 1] = "-whole-word"
+  for _, n in ipairs(BACKENDS_ORDER) do
+    if backends[n].available(opts) then
+      return backends[n], n
+    end
   end
-  if opts.match_path then
-    args[#args + 1] = "-match-path"
-  end
-  if opts.sort then
-    args[#args + 1] = "-s"
-  end
-  -- Avoid passing -offset 0 (default) unnecessarily; 0 is truthy in Lua
-  if opts.offset and opts.offset > 0 then
-    args[#args + 1] = "-offset"
-    args[#args + 1] = tostring(opts.offset)
-  end
-  if opts.max_results then
-    args[#args + 1] = "-max-results"
-    args[#args + 1] = tostring(opts.max_results)
-  end
-  -- -regex must be the last flag, before query terms
-  if opts.regex then
-    args[#args + 1] = "-regex"
-  end
-  vim.list_extend(args, query_parts)
-  return args
+  return nil, nil
 end
+
+-- ─── picker source ─────────────────────────────────────────────────────────
 
 ---@param opts snacks.picker.Config
 ---@param ctx snacks.picker.ctx
@@ -94,11 +164,25 @@ function M.source(opts, ctx)
   if search == "" then
     return function(_cb) end
   end
+
+  -- Ensure opts.backends is populated (needed when called via registered source)
+  if not opts.backends then
+    opts = vim.tbl_deep_extend("force", M.config, opts)
+  end
+
+  local backend, name = resolve_backend(opts)
+  if not backend then
+    vim.notify(
+      "snacks-everything: no supported backend found (tried: " .. table.concat(BACKENDS_ORDER, ", ") .. ")",
+      vim.log.levels.WARN
+    )
+    return function(_cb) end
+  end
+
   local query_parts = split_search(search)
-  local es_args = build_es_args(opts, query_parts)
   return require("snacks.picker.source.proc").proc(ctx:opts({
-    cmd = opts.es_path,
-    args = es_args,
+    cmd = backend.cmd(opts),
+    args = backend.build_args(opts, query_parts),
     transform = function(item)
       local path = vim.trim(item.text)
       if path == "" then
@@ -110,26 +194,47 @@ function M.source(opts, ctx)
   }), ctx)
 end
 
----@param opts? snacks_everything.Config|snacks.picker.Config
-function M.pick(opts)
-  opts = vim.tbl_deep_extend("force", M.config, opts or {})
-  Snacks.picker.pick({
-    title = "Everything",
+-- ─── public API ────────────────────────────────────────────────────────────
+
+---@param opts? snacks_everything.Config
+function M.setup(opts)
+  M.config = vim.tbl_deep_extend("force", defaults, opts or {})
+
+  local ok, snacks_picker = pcall(require, "snacks.picker")
+  if not ok then
+    return
+  end
+
+  snacks_picker.sources = snacks_picker.sources or {}
+  snacks_picker.sources.everything = vim.tbl_extend("force", {
+    title = "File Search",
     live = true,
     supports_live = true,
     need_search = true,
     finder = M.source,
     format = "file",
     preview = "file",
-    es_path = opts.es_path,
-    case_sensitive = opts.case_sensitive,
-    whole_word = opts.whole_word,
-    match_path = opts.match_path,
-    sort = opts.sort,
-    regex = opts.regex,
-    offset = opts.offset,
-    max_results = opts.max_results,
-  })
+  }, M.config)
+end
+
+---@param opts? snacks_everything.Config|snacks.picker.Config
+function M.pick(opts)
+  local cfg = vim.tbl_deep_extend("force", M.config, opts or {})
+
+  -- Resolve backend early so we can show an accurate title
+  local _, name = resolve_backend(cfg)
+  local title_map = { everything = "Everything", plocate = "plocate" }
+  local title = title_map[name] or "File Search"
+
+  Snacks.picker.pick(vim.tbl_extend("force", cfg, {
+    title = title,
+    live = true,
+    supports_live = true,
+    need_search = true,
+    finder = M.source,
+    format = "file",
+    preview = "file",
+  }))
 end
 
 return M
