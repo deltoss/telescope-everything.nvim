@@ -8,7 +8,7 @@ M.check = function()
 
   if backend == "auto" then
     local found = false
-    for _, name in ipairs({ "everything", "plocate" }) do
+    for _, name in ipairs(require("everywhere").backends) do
       local cmd = cfg.backends[name].cmd
       if vim.fn.executable(cmd) == 1 then
         vim.health.ok(name .. " (" .. cmd .. ") found")

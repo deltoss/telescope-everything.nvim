@@ -15,13 +15,7 @@ local defaults = {
 
 M.config = vim.deepcopy(defaults)
 
-local picker_base = {
-  live = true,
-  supports_live = true,
-  need_search = true,
-  format = "file",
-  preview = "file",
-}
+local BACKENDS = { "everything", "plocate" }
 
 local function everything_args(opts, query_parts)
   local b = opts.backends.everything
@@ -84,7 +78,7 @@ local function resolve_backend(opts)
   if opts.backend ~= "auto" then
     return opts.backend
   end
-  for _, name in ipairs({ "everything", "plocate" }) do
+  for _, name in ipairs(BACKENDS) do
     if vim.fn.executable(opts.backends[name].cmd) == 1 then
       return name
     end
@@ -99,7 +93,10 @@ local function source(opts, ctx)
   end
   local backend_name = resolve_backend(opts)
   if not backend_name then
-    vim.notify("everywhere.nvim: no backend found (tried: everything, plocate)", vim.log.levels.WARN)
+    vim.notify(
+      "everywhere.nvim: no backend found (tried: " .. table.concat(BACKENDS, ", ") .. ")",
+      vim.log.levels.WARN
+    )
     return function() end
   end
   local query_parts = split_search(search)
@@ -118,6 +115,16 @@ local function source(opts, ctx)
   }), ctx)
 end
 
+-- Defined after source so finder can reference it directly
+local picker_base = {
+  live = true,
+  supports_live = true,
+  need_search = true,
+  format = "file",
+  preview = "file",
+  finder = source,
+}
+
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", defaults, opts or {})
   local ok, snacks_picker = pcall(require, "snacks.picker")
@@ -125,18 +132,21 @@ function M.setup(opts)
   snacks_picker.sources = snacks_picker.sources or {}
   snacks_picker.sources.everywhere = vim.tbl_extend("force", picker_base, M.config, {
     title = "File Search",
-    finder = source,
   })
 end
 
 function M.pick(opts)
   local cfg = vim.tbl_deep_extend("force", M.config, opts or {})
   local name = resolve_backend(cfg)
+  -- Pass the resolved name so source() skips the executable check on each call
+  cfg.backend = name
   local titles = { everything = "Everything", plocate = "plocate" }
   Snacks.picker.pick(vim.tbl_extend("force", picker_base, cfg, {
     title = titles[name] or "File Search",
-    finder = source,
   }))
 end
+
+-- Single source of truth for the supported backend list
+M.backends = BACKENDS
 
 return M
