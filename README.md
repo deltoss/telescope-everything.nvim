@@ -36,15 +36,8 @@ One of:
 
 ```lua
 require("everywhere").setup({
-  -- backend can be a string ("everything", "plocate", or "auto") or a function.
-  -- The default function picks based on OS: Everything on Windows, plocate elsewhere.
-  -- Use "auto" to instead pick whichever tool is executable on the current machine.
-  backend = function()
-    if vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1 then
-      return "everything"
-    end
-    return "plocate"
-  end,
+  -- "auto" tries each backend in order until one is found; or force "everything" / "plocate"
+  backend = "auto",
 
   -- Shared flags (translated for each backend automatically)
   case_sensitive = false,
@@ -145,7 +138,7 @@ require("telescope").setup({
 
 | Option | Default | Description |
 |---|---|---|
-| `backend` | OS function | `"everything"`, `"plocate"`, `"auto"` (first executable), or a `function()` returning one of those strings. |
+| `backend` | `"auto"` | Which backend to use. `"auto"` picks the first available. |
 | `case_sensitive` | `false` | Case-sensitive matching |
 | `whole_word` | `false` | Whole-word matching |
 | `match_path` | `false` | `false` = filename only, `true` = full path |

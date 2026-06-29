@@ -2,14 +2,7 @@ local M = {}
 
 -- Default configuration
 local defaults = {
-  -- backend can be "everything", "plocate", "auto" (tries each in order),
-  -- or a function that returns one of those strings.
-  backend = function()
-    if vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1 then
-      return "everything"
-    end
-    return "plocate"
-  end,
+  backend = "auto", -- "auto" tries each backend in order; or "everything" / "plocate"
   case_sensitive = false,
   whole_word = false,
   match_path = false, -- false = filename only, true = full path
@@ -94,19 +87,15 @@ end
 
 -- Return the name of the backend to use, or nil if none is available.
 local function resolve_backend(opts)
-  local backend = opts.backend
-  if type(backend) == "function" then
-    backend = backend()
+  if opts.backend ~= "auto" then
+    return opts.backend
   end
-  if backend == "auto" then
-    for _, name in ipairs({ "everything", "plocate" }) do
-      if vim.fn.executable(opts.backends[name].cmd) == 1 then
-        return name
-      end
+  for _, name in ipairs({ "everything", "plocate" }) do
+    if vim.fn.executable(opts.backends[name].cmd) == 1 then
+      return name
     end
-    return nil
   end
-  return backend
+  return nil
 end
 
 -- The finder function Snacks calls to populate the picker.
