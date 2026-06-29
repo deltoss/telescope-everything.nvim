@@ -113,7 +113,7 @@ function M.source(opts, ctx)
 
   local backend_name = resolve_backend(opts)
   if not backend_name then
-    vim.notify("snacks-everything: no backend found (tried: everything, plocate)", vim.log.levels.WARN)
+    vim.notify("everywhere.nvim: no backend found (tried: everything, plocate)", vim.log.levels.WARN)
     return function() end
   end
 
@@ -146,7 +146,7 @@ function M.setup(opts)
   if not ok then return end
 
   snacks_picker.sources = snacks_picker.sources or {}
-  snacks_picker.sources.everything = vim.tbl_extend("force", {
+  snacks_picker.sources.everywhere = vim.tbl_extend("force", {
     title = "File Search",
     live = true,
     supports_live = true,
